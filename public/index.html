@@ -405,10 +405,20 @@ function renderExhibit(entry, captures, isNew) {
   const est = usage ? "" : "≈";
   const cost = money(entry.cost);
   const cached = usage?.input_tokens_details?.cached_tokens || 0;
+  const outTok = usage?.output_tokens || 0;
+  const thinkTok = usage?.output_tokens_details?.reasoning_tokens || 0;
   $("stats").innerHTML =
     statHtml("you", "you typed", `~${fmt.format(you)}<span class="unit"> tok</span>`, `${pctOfPayloadText(you, totalIn)} of the payload`) +
-    statHtml("sent", "sent in your name", `${est}${fmt.format(totalIn)}<span class="unit"> tok</span>`, cached ? `${fmt.format(cached)} cached at reduced price` : "") +
-    statHtml("reply", "reply", usage ? `${fmt.format(usage.output_tokens)}<span class="unit"> tok</span>` : "…", "") +
+    statHtml(
+      "sent", "sent in your name — this request",
+      `${est}${fmt.format(totalIn)}<span class="unit"> tok in</span>`,
+      `whole conversation resent each turn${cached ? ` · ${fmt.format(cached)} cached at reduced price` : ""}`
+    ) +
+    statHtml(
+      "reply", "model output",
+      usage ? `${fmt.format(outTok)}<span class="unit"> tok out</span>` : "…",
+      usage && thinkTok ? `${fmt.format(thinkTok)} thinking + ${fmt.format(outTok - thinkTok)} visible reply` : (usage ? "all visible reply" : "")
+    ) +
     statHtml("cost", "this request cost", cost || "…", "");
 
   const sessionCost = captures.reduce((s, c) => s + (c.cost || 0), 0);
@@ -435,10 +445,19 @@ function renderSessionExhibit(captures, isNew) {
   const { you, segs } = payloadSegs(captures, totalIn);
   renderBarLegend(segs, isNew);
 
+  const thinkTok = captures.reduce((s, c) => s + (c.usage?.output_tokens_details?.reasoning_tokens || 0), 0);
   $("stats").innerHTML =
     statHtml("you", "you typed", `~${fmt.format(you)}<span class="unit"> tok</span>`, `${pctOfPayloadText(you, totalIn)} of the payload`) +
-    statHtml("sent", "sent in your name", `${est}${fmt.format(totalIn)}<span class="unit"> tok</span>`, cached ? `${fmt.format(cached)} cached at reduced price` : "") +
-    statHtml("reply", "replies", `${fmt.format(outTok)}<span class="unit"> tok</span>`, "") +
+    statHtml(
+      "sent", "sent in your name — whole session",
+      `${est}${fmt.format(totalIn)}<span class="unit"> tok in</span>`,
+      `across ${n} request${n === 1 ? "" : "s"}${cached ? ` · ${fmt.format(cached)} cached at reduced price` : ""}`
+    ) +
+    statHtml(
+      "reply", "model output",
+      `${fmt.format(outTok)}<span class="unit"> tok out</span>`,
+      thinkTok ? `${fmt.format(thinkTok)} thinking + ${fmt.format(outTok - thinkTok)} visible reply` : ""
+    ) +
     statHtml("cost", "session cost", money(cost) || "…", "");
 
   $("session-total").textContent = "";
