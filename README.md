@@ -17,6 +17,22 @@ cost.
                   [ inspector: http://127.0.0.1:8080/ ]
 ```
 
+## Quick start on a fresh machine
+
+Prereqs: Node 20+, Python 3, the Codex CLI, and an OpenAI API key.
+
+```sh
+git clone https://github.com/charliec2004/transparency-proxy.git
+cd transparency-proxy
+npm install
+python3 demo.py        # prompts for your key, starts everything, launches Codex
+```
+
+`demo.py` needs the Codex config block below in `~/.codex/config.toml` once
+per machine. No key yet? Rehearse with fakes: `npm run smoke`, or `npm run mock`
+plus `UPSTREAM_URL=http://127.0.0.1:9090/v1/responses npm start` and
+`node test/rehearsal.js "say hi"`.
+
 ## Run it
 
 ```sh
