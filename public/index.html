@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transparency Proxy — the wire tells a different story</title>
+<style>
+  :root {
+    --ink: #16130e;
+    --panel: #211c13;
+    --panel-2: #2a2417;
+    --line: #4a4130;
+    --paper: #e8e0cc;
+    --paper-dim: #9c9077;
+    --hazard: #ff6a00;
+    --danger: #e5484d;
+    --ok: #8fae6a;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--ink);
+    color: var(--paper);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    line-height: 1.45;
+    min-height: 100vh;
+  }
+  ::selection { background: var(--hazard); color: var(--ink); }
+
+  /* ---------- header + signature ratio strip ---------- */
+  header { padding: 1.1rem 1.4rem 0.9rem; border-bottom: 1px solid var(--line); }
+  .masthead { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+  .masthead h1 {
+    font-size: clamp(1.05rem, 2.2vw, 1.5rem);
+    font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .masthead h1 span { color: var(--hazard); }
+  .status { font-size: 0.75rem; letter-spacing: 0.1em; color: var(--paper-dim); text-transform: uppercase; }
+  .status .dot { color: var(--ok); }
+  .status .dot.stale { color: var(--danger); }
+
+  .exhibit { margin-top: 1rem; }
+  .exhibit-label {
+    display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-dim);
+    margin-bottom: 0.4rem;
+  }
+  .ratio { display: flex; height: 2.4rem; border: 1px solid var(--line); background: var(--panel); }
+  .ratio .you {
+    background: var(--paper); min-width: 3px;
+    transition: width 0.6s ease;
+  }
+  .ratio .hidden-part {
+    background: repeating-linear-gradient(-45deg, var(--hazard) 0 10px, #d95500 10px 20px);
+    flex: 1; transition: width 0.6s ease;
+  }
+  .ratio-caption { display: flex; justify-content: space-between; gap: 1rem; margin-top: 0.45rem; flex-wrap: wrap; }
+  .ratio-caption .you-cap { font-size: 0.8rem; color: var(--paper); }
+  .ratio-caption .sent-cap { font-size: 0.95rem; font-weight: 700; color: var(--hazard); text-align: right; }
+  .money { font-weight: 800; }
+
+  /* ---------- layout ---------- */
+  main { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; min-height: calc(100vh - 140px); }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+
+  section h2 {
+    font-size: 0.78rem; letter-spacing: 0.16em; text-transform: uppercase;
+    padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); color: var(--paper-dim);
+    position: sticky; top: 0; background: var(--ink); z-index: 2;
+  }
+  .saw { border-right: 1px solid var(--line); }
+  .saw-body, .sent-body { padding: 1rem; }
+
+  .bubble { margin-bottom: 1rem; }
+  .bubble .who { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-dim); margin-bottom: 0.25rem; }
+  .bubble pre {
+    white-space: pre-wrap; word-break: break-word; font: inherit;
+    background: var(--panel); border: 1px solid var(--line); padding: 0.6rem 0.75rem;
+    max-height: 16rem; overflow: auto;
+  }
+  .bubble.user pre { border-left: 3px solid var(--paper); }
+  .bubble.assistant pre { border-left: 3px solid var(--ok); }
+
+  .reqlist { list-style: none; margin-top: 1.25rem; border-top: 1px dashed var(--line); padding-top: 0.75rem; }
+  .reqlist-title { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-dim); margin-bottom: 0.4rem; }
+  .reqlist button {
+    width: 100%; text-align: left; background: none; border: none; color: var(--paper-dim);
+    font: inherit; font-size: 0.78rem; padding: 0.3rem 0.35rem; cursor: pointer;
+  }
+  .reqlist button:hover, .reqlist button:focus-visible { color: var(--paper); background: var(--panel); outline: 1px solid var(--line); }
+  .reqlist button[aria-current="true"] { color: var(--hazard); }
+
+  /* ---------- the hidden payload ---------- */
+  .card { border: 1px solid var(--line); background: var(--panel); margin-bottom: 1rem; }
+  .card > summary {
+    list-style: none; cursor: pointer; padding: 0.65rem 0.9rem;
+    display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap;
+  }
+  .card > summary::-webkit-details-marker { display: none; }
+  .card > summary:focus-visible { outline: 2px solid var(--hazard); outline-offset: -2px; }
+  .card > summary::before { content: "▸"; color: var(--paper-dim); }
+  .card[open] > summary::before { content: "▾"; }
+  .card .kicker { font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; }
+  .card .meta { font-size: 0.72rem; color: var(--paper-dim); }
+  .card .never { font-size: 0.72rem; color: var(--hazard); letter-spacing: 0.08em; text-transform: uppercase; }
+  .card .body { padding: 0 0.9rem 0.9rem; }
+  .card pre {
+    white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 0.82rem;
+    background: var(--ink); border: 1px solid var(--line); padding: 0.7rem 0.8rem;
+    max-height: 24rem; overflow: auto;
+  }
+  .card.hot { border-color: var(--hazard); }
+  .card.hot .kicker { color: var(--hazard); }
+
+  .tool { border: 1px solid var(--line); background: var(--panel-2); margin: 0 0 0.6rem; }
+  .tool summary { list-style: none; cursor: pointer; padding: 0.5rem 0.7rem; display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+  .tool summary::-webkit-details-marker { display: none; }
+  .tool summary:focus-visible { outline: 2px solid var(--hazard); outline-offset: -2px; }
+  .tool .tname { font-weight: 700; }
+  .tool .cap {
+    font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 800;
+    color: var(--ink); background: var(--danger); padding: 0.1rem 0.4rem;
+  }
+  .tool .tdesc { font-size: 0.74rem; color: var(--paper-dim); width: 100%; }
+  .tool pre { margin: 0 0.7rem 0.7rem; }
+
+  .kv { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .kv td { border-top: 1px solid var(--line); padding: 0.4rem 0.6rem; vertical-align: top; }
+  .kv td:first-child { color: var(--paper-dim); white-space: nowrap; width: 1%; }
+  .kv td:last-child { word-break: break-word; }
+
+  .empty { padding: 3rem 1.5rem; color: var(--paper-dim); max-width: 46ch; }
+  .empty b { color: var(--paper); }
+  .empty code { color: var(--hazard); }
+
+  @keyframes flash { from { background: var(--hazard); } to { background: transparent; } }
+  .flash { animation: flash 0.7s ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .flash { animation: none; }
+    .ratio .you, .ratio .hidden-part { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="masthead">
+    <h1>Transparency proxy — <span>what goes out in your name</span></h1>
+    <div class="status" id="status"><span class="dot">●</span> waiting for traffic</div>
+  </div>
+  <div class="exhibit" id="exhibit" hidden>
+    <div class="exhibit-label">
+      <span>Exhibit A — payload of the latest request, to scale</span>
+      <span id="session-total"></span>
+    </div>
+    <div class="ratio" role="img" aria-label="Proportion of tokens you typed versus tokens sent on your behalf">
+      <div class="you" id="ratio-you"></div>
+      <div class="hidden-part"></div>
+    </div>
+    <div class="ratio-caption">
+      <span class="you-cap" id="cap-you"></span>
+      <span class="sent-cap" id="cap-sent"></span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="saw" aria-label="What you saw">
+    <h2>What you saw</h2>
+    <div class="saw-body" id="saw"></div>
+  </section>
+  <section aria-label="What was actually sent">
+    <h2>What was actually sent</h2>
+    <div class="sent-body" id="sent">
+      <div class="empty">
+        <p><b>Nothing intercepted yet.</b></p>
+        <p style="margin-top:0.8rem">Point Codex at <code>http://127.0.0.1:8080/v1</code> (see README) and ask it for one small thing — even just "say hi".</p>
+        <p style="margin-top:0.8rem">Then look back here.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+let selectedId = null;   // null = follow newest
+let lastNewestId = null;
+
+const fmt = new Intl.NumberFormat("en-US");
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function money(v) {
+  if (v == null) return null;
+  return v < 0.01 ? "$" + v.toFixed(4) : "$" + v.toFixed(2);
+}
+
+// Pull plain text out of a Responses input item's content.
+function itemText(item) {
+  if (typeof item?.content === "string") return item.content;
+  if (Array.isArray(item?.content)) {
+    return item.content
+      .filter((c) => typeof c?.text === "string")
+      .map((c) => c.text)
+      .join("\n");
+  }
+  if (typeof item?.text === "string") return item.text;
+  return "";
+}
+
+function lastUserText(input) {
+  if (typeof input === "string") return input;
+  if (!Array.isArray(input)) return "";
+  for (let i = input.length - 1; i >= 0; i--) {
+    if (input[i]?.role === "user") {
+      const t = itemText(input[i]);
+      if (t) return t;
+    }
+  }
+  return "";
+}
+
+// Tools whose names suggest machine access get called out.
+function capability(tool) {
+  const n = (tool?.name || tool?.function?.name || "").toLowerCase();
+  const t = (tool?.type || "").toLowerCase();
+  if (/shell|exec|command|terminal|bash/.test(n) || t === "local_shell") return "can run commands";
+  if (/patch|edit|write|file/.test(n)) return "can edit your files";
+  if (/web|search|fetch|browser/.test(n) || t === "web_search") return "can reach the network";
+  return null;
+}
+
+function toolName(tool) {
+  return tool?.name || tool?.function?.name || tool?.type || "unnamed tool";
+}
+
+function estTokens(entry) {
+  return Math.round((entry.requestBytes || 0) / 4);
+}
+
+function render(captures) {
+  const newest = captures[0];
+  if (!newest) return;
+
+  const entry = captures.find((c) => c.id === selectedId) || newest;
+  const isNew = newest.id !== lastNewestId;
+  lastNewestId = newest.id;
+  if (selectedId === null || isNew) selectedId = null; // keep following newest
+
+  const shown = selectedId === null ? newest : entry;
+  renderExhibit(shown, captures, isNew);
+  renderSaw(shown, captures);
+  renderSent(shown);
+}
+
+function renderExhibit(entry, captures, isNew) {
+  $("exhibit").hidden = false;
+  const usage = entry.usage;
+  const totalIn = usage ? usage.input_tokens : estTokens(entry);
+  const youTok = Math.max(1, Math.round(lastUserText(entry.input).length / 4));
+  const pct = Math.min(30, Math.max(0.15, (youTok / Math.max(totalIn, 1)) * 100));
+  $("ratio-you").style.width = pct + "%";
+
+  $("cap-you").textContent = `you typed: ~${fmt.format(youTok)} tokens`;
+  const est = usage ? "" : "≈";
+  const cost = money(entry.cost);
+  $("cap-sent").innerHTML =
+    `sent in your name: ${est}${fmt.format(totalIn)} tokens in` +
+    (usage ? ` / ${fmt.format(usage.output_tokens)} out` : "") +
+    (cost ? ` <span class="money">· ${cost}</span>` : "");
+
+  const sessionCost = captures.reduce((s, c) => s + (c.cost || 0), 0);
+  const sessionIn = captures.reduce((s, c) => s + (c.usage?.input_tokens || 0), 0);
+  $("session-total").textContent = sessionIn
+    ? `session: ${fmt.format(sessionIn)} tokens in · ${money(sessionCost) || "$0.00"}`
+    : "";
+
+  if (isNew) {
+    const bar = document.querySelector(".ratio");
+    bar.classList.remove("flash");
+    void bar.offsetWidth;
+    bar.classList.add("flash");
+  }
+
+  const dot = document.querySelector("#status .dot");
+  dot.classList.remove("stale");
+  $("status").innerHTML =
+    `<span class="dot">●</span> request #${entry.id} · ${esc(entry.model || "?")} · ` +
+    `${esc(entry.status)}${entry.durationMs ? " · " + (entry.durationMs / 1000).toFixed(1) + "s" : ""}`;
+}
+
+function renderSaw(entry, captures) {
+  const ask = lastUserText(entry.input) || "(no user text found)";
+  const reply = entry.outputText || (entry.status === "streaming" || entry.status === "pending" ? "…" : "(no text reply)");
+  let html =
+    `<div class="bubble user"><div class="who">you typed</div><pre>${esc(ask)}</pre></div>` +
+    `<div class="bubble assistant"><div class="who">codex replied</div><pre>${esc(reply)}</pre></div>`;
+
+  html += `<ul class="reqlist"><li class="reqlist-title">intercepted requests</li>`;
+  for (const c of captures) {
+    const current = c.id === entry.id;
+    const label = lastUserText(c.input).slice(0, 42) || "(non-text input)";
+    html += `<li><button data-id="${c.id}" aria-current="${current}">#${c.id} · ${esc(label)}</button></li>`;
+  }
+  html += `</ul>`;
+  $("saw").innerHTML = html;
+  $("saw").querySelectorAll("button[data-id]").forEach((b) =>
+    b.addEventListener("click", () => {
+      selectedId = Number(b.dataset.id);
+      poll();
+    })
+  );
+}
+
+function renderSent(entry) {
+  const parts = [];
+
+  const instr = entry.instructions || "";
+  parts.push(
+    `<details class="card hot" open>
+      <summary><span class="kicker">Instructions</span>
+        <span class="meta">${fmt.format(instr.length)} chars · ~${fmt.format(Math.round(instr.length / 4))} tokens</span>
+        <span class="never">never shown to you</span></summary>
+      <div class="body"><pre>${esc(instr) || "(none)"}</pre></div>
+    </details>`
+  );
+
+  const tools = Array.isArray(entry.tools) ? entry.tools : [];
+  const toolCards = tools
+    .map((t) => {
+      const cap = capability(t);
+      const desc = t.description || t.function?.description || "";
+      return `<details class="tool">
+        <summary><span class="tname">${esc(toolName(t))}</span>
+          ${cap ? `<span class="cap">${esc(cap)}</span>` : ""}
+          ${desc ? `<span class="tdesc">${esc(desc.slice(0, 160))}</span>` : ""}</summary>
+        <pre>${esc(JSON.stringify(t, null, 2))}</pre>
+      </details>`;
+    })
+    .join("");
+  parts.push(
+    `<details class="card hot" open>
+      <summary><span class="kicker">Tools it can fire</span>
+        <span class="meta">${tools.length} tool${tools.length === 1 ? "" : "s"}</span>
+        <span class="never">silent machine access</span></summary>
+      <div class="body">${toolCards || "<pre>(none)</pre>"}</div>
+    </details>`
+  );
+
+  const input = entry.input;
+  const inputCount = Array.isArray(input) ? input.length : input ? 1 : 0;
+  parts.push(
+    `<details class="card">
+      <summary><span class="kicker">Full input</span>
+        <span class="meta">${inputCount} item${inputCount === 1 ? "" : "s"} · everything resent each turn</span></summary>
+      <div class="body"><pre>${esc(JSON.stringify(input, null, 2)) || "(none)"}</pre></div>
+    </details>`
+  );
+
+  const rows = Object.entries(entry.params || {})
+    .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(JSON.stringify(v))}</td></tr>`)
+    .join("");
+  parts.push(
+    `<details class="card">
+      <summary><span class="kicker">Model &amp; parameters</span>
+        <span class="meta">${esc(entry.model || "?")}</span></summary>
+      <div class="body"><table class="kv">${rows || "<tr><td>(none)</td><td></td></tr>"}</table></div>
+    </details>`
+  );
+
+  if (entry.parseError) {
+    parts.unshift(`<div class="card"><div class="body" style="padding-top:0.9rem"><pre>${esc(entry.parseError)} — ${fmt.format(entry.requestBytes)} raw bytes forwarded verbatim</pre></div></div>`);
+  }
+
+  $("sent").innerHTML = parts.join("");
+}
+
+let failures = 0;
+async function poll() {
+  try {
+    const res = await fetch("/inspect");
+    const data = await res.json();
+    failures = 0;
+    if (data.captures?.length) render(data.captures);
+  } catch {
+    if (++failures > 4) {
+      $("status").innerHTML = `<span class="dot stale">●</span> proxy unreachable`;
+    }
+  }
+}
+poll();
+setInterval(poll, 500);
+</script>
+</body>
+</html>
