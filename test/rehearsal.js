@@ -68,7 +68,9 @@ const body = {
   store: false,
   stream: true,
   include: ["reasoning.encrypted_content"],
-  prompt_cache_key: "rehearsal-0197",
+  // No prompt_cache_key on purpose: the inspector uses it to distinguish real
+  // Codex traffic, so rehearsal requests get the "not from your Codex
+  // session" tag like any other outside caller.
 };
 
 const res = await fetch("http://127.0.0.1:8080/v1/responses", {

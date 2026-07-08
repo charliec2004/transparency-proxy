@@ -118,6 +118,7 @@
   .reqlist button:hover, .reqlist button:focus-visible { color: var(--paper); background: var(--panel); outline: 1px solid var(--line); }
   .reqlist button[aria-current="true"] { color: var(--hazard); }
   .round { color: var(--ok); font-size: 0.9em; }
+  .alien { color: var(--danger); font-size: 0.9em; }
   .loopreqs { list-style: none; margin-left: 1rem; padding-left: 0.4rem; border-left: 1px dashed var(--line); }
   .loopreqs button { font-size: 0.72rem; padding: 0.15rem 0.35rem; }
 
@@ -279,6 +280,13 @@ function toolRound(input) {
 }
 
 const roundTag = (r) => (r > 0 ? ` <span class="round">⟳ ${r} tool result${r === 1 ? "" : "s"}</span>` : "");
+
+// Codex always sends a prompt_cache_key session id; a request without one
+// came from something else on this machine talking through the proxy
+// (e.g. a test script — or a script an agent decided to run).
+const isOutsideCodex = (c) => !(c.params && c.params.prompt_cache_key);
+const outsideTag = (c) =>
+  isOutsideCodex(c) ? ` <span class="alien">⚠ not from your Codex session</span>` : "";
 
 // Tools whose names suggest machine access get called out.
 function capability(tool) {
@@ -500,7 +508,8 @@ function renderExhibit(entry, captures, isNew) {
   setStatus(
     `request #${entry.id} · ${esc(entry.model || "?")} · ` +
     `${esc(entry.status)}${entry.durationMs ? " · " + (entry.durationMs / 1000).toFixed(1) + "s" : ""}` +
-    (round ? ` · sent by the agent loop, not you (carrying ${round} tool result${round === 1 ? "" : "s"})` : "")
+    (round ? ` · sent by the agent loop, not you (carrying ${round} tool result${round === 1 ? "" : "s"})` : "") +
+    (isOutsideCodex(entry) ? ` · <span class="alien">⚠ not from your Codex session — something else on this machine sent it</span>` : "")
   );
 }
 
@@ -547,7 +556,7 @@ function renderSessionSent(captures) {
   const rows = [...captures]
     .reverse()
     .map((c) => {
-      const ask = (esc(lastUserText(c.input).slice(0, 48)) || "(non-text input)") + roundTag(toolRound(c.input));
+      const ask = (esc(lastUserText(c.input).slice(0, 48)) || "(non-text input)") + roundTag(toolRound(c.input)) + outsideTag(c);
       return (
         `<tr><td>#${c.id}</td><td>${new Date(c.time).toLocaleTimeString()}</td><td>${ask}</td>` +
         `<td>${c.usage ? fmt.format(c.usage.input_tokens) : "≈" + fmt.format(estTokens(c))}</td>` +
@@ -627,7 +636,7 @@ function renderSaw(entry, captures) {
     const extra = t.members.length
       ? ` <span class="round">+${t.members.length} agent-loop req${t.members.length === 1 ? "" : "s"}</span>`
       : "";
-    html += `<li><button data-id="${last.id}" aria-current="${isCur(a)}">#${a.id} · ${esc(label)}${extra}</button>`;
+    html += `<li><button data-id="${last.id}" aria-current="${isCur(a)}">#${a.id} · ${esc(label)}${extra}${outsideTag(a)}</button>`;
     if (t.members.length) {
       html += `<ul class="loopreqs">`;
       t.members.forEach((m, i) => {
