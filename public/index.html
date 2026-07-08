@@ -437,6 +437,12 @@ function renderSessionExhibit(captures, isNew) {
 
 function renderSessionSent(captures) {
   const newest = captures[0];
+  const sameView = lastSentId === "session";
+  lastSentId = "session";
+  const openKeys = sameView
+    ? new Set([...document.querySelectorAll("#sent details[open]")].map((d) => d.dataset.key))
+    : null;
+  const openAttr = (key, def) => ((openKeys ? openKeys.has(key) : def) ? "open" : "");
   const rows = [...captures]
     .reverse()
     .map((c) => {
@@ -454,8 +460,14 @@ function renderSessionSent(captures) {
   const toolsTok = newest.tools ? estTokStr(JSON.stringify(newest.tools)) : 0;
   const n = captures.length;
 
+  const input = newest.input;
+  const inputCount = Array.isArray(input) ? input.length : input ? 1 : 0;
+  const paramRows = Object.entries(newest.params || {})
+    .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(JSON.stringify(v))}</td></tr>`)
+    .join("");
+
   $("sent").innerHTML =
-    `<details class="card hot" open>
+    `<details class="card hot" data-key="ledger" ${openAttr("ledger", true)}>
       <summary><span class="kicker">Session ledger</span>
         <span class="meta">${n} request${n === 1 ? "" : "s"} · oldest first</span></summary>
       <div class="body"><table class="kv">
@@ -463,13 +475,23 @@ function renderSessionSent(captures) {
         ${rows}
       </table></div>
     </details>
-    <details class="card hot" open>
+    <details class="card hot" data-key="resent" ${openAttr("resent", true)}>
       <summary><span class="kicker">Resent with every single request</span>
         <span class="never">the overhead repeats</span></summary>
       <div class="body"><table class="kv">
         <tr><td>hidden instructions</td><td>~${fmt.format(instrTok)} tok × ${n} request${n === 1 ? "" : "s"} ≈ <b>${fmt.format(instrTok * n)} tokens</b></td></tr>
         <tr><td>tool schemas</td><td>~${fmt.format(toolsTok)} tok × ${n} request${n === 1 ? "" : "s"} ≈ <b>${fmt.format(toolsTok * n)} tokens</b></td></tr>
       </table></div>
+    </details>
+    <details class="card" data-key="input" ${openAttr("input", false)}>
+      <summary><span class="kicker">Full input</span>
+        <span class="meta">${inputCount} item${inputCount === 1 ? "" : "s"} · ~${fmt.format(Math.round(JSON.stringify(input || "").length / 4))} tokens · the whole conversation as last sent (request #${newest.id})</span>${copyBtn("input")}</summary>
+      <div class="body"><pre>${esc(JSON.stringify(input, null, 2)) || "(none)"}</pre></div>
+    </details>
+    <details class="card" data-key="params" ${openAttr("params", false)}>
+      <summary><span class="kicker">Model &amp; parameters</span>
+        <span class="meta">${esc(newest.model || "?")}</span>${copyBtn("params")}</summary>
+      <div class="body"><table class="kv">${paramRows || "<tr><td>(none)</td><td></td></tr>"}</table></div>
     </details>`;
 }
 
