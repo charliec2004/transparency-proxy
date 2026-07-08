@@ -118,6 +118,8 @@
   .reqlist button:hover, .reqlist button:focus-visible { color: var(--paper); background: var(--panel); outline: 1px solid var(--line); }
   .reqlist button[aria-current="true"] { color: var(--hazard); }
   .round { color: var(--ok); font-size: 0.9em; }
+  .loopreqs { list-style: none; margin-left: 1rem; padding-left: 0.4rem; border-left: 1px dashed var(--line); }
+  .loopreqs button { font-size: 0.72rem; padding: 0.15rem 0.35rem; }
 
   /* ---------- the hidden payload ---------- */
   /* Flat sections, not nested boxes: each card is a top rule + content; the
@@ -599,10 +601,38 @@ function renderSaw(entry, captures) {
   html += `<li><button data-id="session" aria-current="${selectedId === "session"}">▣ whole session</button></li>`;
   html += `<li><button data-id="live" aria-current="${selectedId === null}">● follow latest</button></li>`;
   html += `<li class="reqlist-title" style="margin-top:0.7rem">intercepted requests</li>`;
-  for (const c of captures) {
-    const current = typeof selectedId === "number" && c.id === selectedId;
-    const label = lastUserText(c.input).slice(0, 42) || "(non-text input)";
-    html += `<li><button data-id="${c.id}" aria-current="${current}">#${c.id} · ${esc(label)}${roundTag(toolRound(c.input))}</button></li>`;
+
+  // Group each turn: the request the user typed is the anchor, and the
+  // agent-loop requests that carry the same ask nest under it as a thread.
+  const ordered = [...captures].sort((a, b) => a.id - b.id);
+  const turns = [];
+  const turnByAsk = new Map();
+  for (const c of ordered) {
+    const ask = lastUserText(c.input);
+    const existing = toolRound(c.input) > 0 ? turnByAsk.get(ask) : null;
+    if (existing) existing.members.push(c);
+    else {
+      const t = { anchor: c, members: [] };
+      turns.push(t);
+      turnByAsk.set(ask, t);
+    }
+  }
+  const isCur = (c) => typeof selectedId === "number" && c.id === selectedId;
+  for (const t of [...turns].reverse()) {
+    const a = t.anchor;
+    const label = lastUserText(a.input).slice(0, 42) || "(non-text input)";
+    const extra = t.members.length
+      ? ` <span class="round">+${t.members.length} agent-loop req${t.members.length === 1 ? "" : "s"}</span>`
+      : "";
+    html += `<li><button data-id="${a.id}" aria-current="${isCur(a)}">#${a.id} · ${esc(label)}${extra}</button>`;
+    if (t.members.length) {
+      html += `<ul class="loopreqs">`;
+      for (const m of t.members) {
+        html += `<li><button data-id="${m.id}" aria-current="${isCur(m)}">└ #${m.id}${roundTag(toolRound(m.input))}</button></li>`;
+      }
+      html += `</ul>`;
+    }
+    html += `</li>`;
   }
   html += `</ul>`;
 
