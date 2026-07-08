@@ -46,14 +46,20 @@
     margin-bottom: 0.4rem;
   }
   .ratio { display: flex; height: 2.4rem; border: 1px solid var(--line); background: var(--panel); }
-  .ratio .you {
-    background: var(--paper); min-width: 3px;
-    transition: width 0.6s ease;
+  .ratio .seg { min-width: 3px; transition: width 0.6s ease; }
+  .seg-you   { background: var(--paper); }
+  .seg-instr { background: repeating-linear-gradient(-45deg, var(--hazard) 0 10px, #d95500 10px 20px); }
+  .seg-tools { background: var(--danger); }
+  .seg-hist  { background: var(--paper-dim); }
+  .legend {
+    display: flex; gap: 1.1rem 1.4rem; flex-wrap: wrap; margin-top: 0.45rem;
+    font-size: 0.75rem; color: var(--paper-dim);
   }
-  .ratio .hidden-part {
-    background: repeating-linear-gradient(-45deg, var(--hazard) 0 10px, #d95500 10px 20px);
-    flex: 1; transition: width 0.6s ease;
-  }
+  .legend .chip { display: inline-block; width: 0.7rem; height: 0.7rem; vertical-align: -0.05rem; margin-right: 0.35rem; border: 1px solid var(--line); }
+  .legend b { color: var(--paper); font-weight: 700; }
+  .legend .you-item b { color: var(--paper); }
+  .legend .instr-item b { color: var(--hazard); }
+  .legend .tools-item b { color: var(--danger); }
   .ratio-caption { display: flex; justify-content: space-between; gap: 1rem; margin-top: 0.45rem; flex-wrap: wrap; }
   .ratio-caption .you-cap { font-size: 0.8rem; color: var(--paper); }
   .ratio-caption .sent-cap { font-size: 0.95rem; font-weight: 700; color: var(--hazard); text-align: right; }
@@ -162,10 +168,8 @@
       <span>Exhibit A — payload of the latest request, to scale</span>
       <span id="session-total"></span>
     </div>
-    <div class="ratio" role="img" aria-label="Proportion of tokens you typed versus tokens sent on your behalf">
-      <div class="you" id="ratio-you"></div>
-      <div class="hidden-part"></div>
-    </div>
+    <div class="ratio" id="ratio" role="img" aria-label="Breakdown of the tokens sent: what you typed versus hidden instructions, tool schemas, and resent conversation"></div>
+    <div class="legend" id="legend"></div>
     <div class="ratio-caption">
       <span class="you-cap" id="cap-you"></span>
       <span class="sent-cap" id="cap-sent"></span>
@@ -309,17 +313,38 @@ function render(captures) {
 function renderExhibit(entry, captures, isNew) {
   $("exhibit").hidden = false;
   const usage = entry.usage;
-  const totalIn = usage ? usage.input_tokens : estTokens(entry);
-  const youTok = Math.max(1, Math.round(lastUserText(entry.input).length / 4));
-  const pct = Math.min(30, Math.max(0.15, (youTok / Math.max(totalIn, 1)) * 100));
-  $("ratio-you").style.width = pct + "%";
+  const totalIn = Math.max(1, usage ? usage.input_tokens : estTokens(entry));
+  const estTok = (s) => Math.round((s || "").length / 4);
 
-  $("cap-you").textContent = `you typed: ~${fmt.format(youTok)} tokens`;
+  // Estimated split of the request. Sizes come from chars/4 per section, then
+  // everything is scaled so the segments sum to the API-reported total.
+  const youTok = Math.max(1, estTok(lastUserText(entry.input)));
+  const instrTok = estTok(entry.instructions);
+  const toolsTok = entry.tools ? estTok(JSON.stringify(entry.tools)) : 0;
+  const histTok = Math.max(0, totalIn - youTok - instrTok - toolsTok);
+  const segs = [
+    { cls: "seg-you", item: "you-item", label: "what you typed", tok: youTok },
+    { cls: "seg-instr", item: "instr-item", label: "hidden instructions", tok: instrTok },
+    { cls: "seg-tools", item: "tools-item", label: "tool schemas", tok: toolsTok },
+    { cls: "seg-hist", item: "hist-item", label: "resent conversation + tool results", tok: histTok },
+  ].filter((s) => s.tok > 0);
+  const segSum = segs.reduce((a, s) => a + s.tok, 0);
+
+  $("ratio").innerHTML = segs
+    .map((s) => `<div class="seg ${s.cls}" style="width:${(s.tok / segSum) * 100}%" title="${s.label}: ~${fmt.format(s.tok)} tokens"></div>`)
+    .join("");
+  $("legend").innerHTML = segs
+    .map((s) => `<span class="${s.item}"><span class="chip ${s.cls}"></span>${s.label} <b>~${fmt.format(s.tok)}</b> tok</span>`)
+    .join("");
+
+  $("cap-you").textContent = `you typed ~${fmt.format(youTok)} of ${fmt.format(totalIn)} tokens (${(100 * youTok / totalIn).toFixed(1)}%) — the rest is the tool talking`;
   const est = usage ? "" : "≈";
   const cost = money(entry.cost);
+  const cached = usage?.input_tokens_details?.cached_tokens || 0;
   $("cap-sent").innerHTML =
-    `sent in your name: ${est}${fmt.format(totalIn)} tokens in` +
-    (usage ? ` / ${fmt.format(usage.output_tokens)} out` : "") +
+    `sent in your name: ${est}${fmt.format(totalIn)} tokens` +
+    (cached ? ` (${fmt.format(cached)} cached)` : "") +
+    (usage ? ` · reply: ${fmt.format(usage.output_tokens)} tokens` : "") +
     (cost ? ` <span class="money">· ${cost}</span>` : "");
 
   const sessionCost = captures.reduce((s, c) => s + (c.cost || 0), 0);
@@ -406,7 +431,7 @@ function renderSent(entry) {
   parts.push(
     `<details class="card hot" data-key="tools" ${openAttr("tools", true)}>
       <summary><span class="kicker">Tools it can fire</span>
-        <span class="meta">${tools.length} tool${tools.length === 1 ? "" : "s"}</span>
+        <span class="meta">${tools.length} tool${tools.length === 1 ? "" : "s"} · ~${fmt.format(Math.round(JSON.stringify(tools).length / 4))} tokens of schemas</span>
         <span class="never">silent machine access</span>${copyBtn("tools")}</summary>
       <div class="body">${toolCards || "<pre>(none)</pre>"}</div>
     </details>`
@@ -417,7 +442,7 @@ function renderSent(entry) {
   parts.push(
     `<details class="card" data-key="input" ${openAttr("input", false)}>
       <summary><span class="kicker">Full input</span>
-        <span class="meta">${inputCount} item${inputCount === 1 ? "" : "s"} · everything resent each turn</span>${copyBtn("input")}</summary>
+        <span class="meta">${inputCount} item${inputCount === 1 ? "" : "s"} · ~${fmt.format(Math.round(JSON.stringify(input || "").length / 4))} tokens · everything resent each turn</span>${copyBtn("input")}</summary>
       <div class="body"><pre>${esc(JSON.stringify(input, null, 2)) || "(none)"}</pre></div>
     </details>`
   );
