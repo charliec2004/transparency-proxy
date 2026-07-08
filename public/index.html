@@ -129,6 +129,16 @@
   .kv td:first-child { color: var(--paper-dim); white-space: nowrap; width: 1%; }
   .kv td:last-child { word-break: break-word; }
 
+  .copybtn {
+    margin-left: auto; flex-shrink: 0;
+    font: inherit; font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--paper-dim); background: none; border: 1px solid var(--line);
+    padding: 0.1rem 0.5rem; cursor: pointer;
+  }
+  .copybtn:hover, .copybtn:focus-visible { color: var(--paper); border-color: var(--paper-dim); outline: none; }
+  .copybtn.copied { color: var(--ok); border-color: var(--ok); }
+  .bubble .who { display: flex; align-items: baseline; gap: 0.5rem; }
+
   .empty { padding: 3rem 1.5rem; color: var(--paper-dim); max-width: 46ch; }
   .empty b { color: var(--paper); }
   .empty code { color: var(--hazard); }
@@ -239,6 +249,36 @@ function estTokens(entry) {
 }
 
 let lastSig = null;
+let currentShown = null;
+
+// One delegated handler covers every copy button, including ones added by
+// later re-renders. stopPropagation keeps clicks from toggling accordions.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".copybtn");
+  if (!btn || !currentShown) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const c = currentShown;
+  const what = btn.dataset.copy;
+  let text = "";
+  if (what === "ask") text = lastUserText(c.input);
+  else if (what === "reply") text = c.outputText || "";
+  else if (what === "instructions") text = c.instructions || "";
+  else if (what === "tools") text = JSON.stringify(c.tools, null, 2);
+  else if (what === "input") text = JSON.stringify(c.input, null, 2);
+  else if (what === "params") text = JSON.stringify({ model: c.model, ...c.params }, null, 2);
+  else if (what.startsWith("tool:")) text = JSON.stringify(c.tools?.[Number(what.slice(5))], null, 2);
+  navigator.clipboard.writeText(text ?? "").then(() => {
+    btn.textContent = "copied";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "copy";
+      btn.classList.remove("copied");
+    }, 1200);
+  });
+});
+
+const copyBtn = (what) => `<button class="copybtn" data-copy="${what}">copy</button>`;
 
 function render(captures) {
   const newest = captures[0];
@@ -250,6 +290,7 @@ function render(captures) {
   if (selectedId === null || isNew) selectedId = null; // keep following newest
 
   const shown = selectedId === null ? newest : entry;
+  currentShown = shown; // copy buttons read from here
 
   // Re-rendering replaces the DOM, which would close open accordions and
   // reset scroll positions — so skip it entirely unless the data changed.
@@ -305,8 +346,8 @@ function renderSaw(entry, captures) {
   const ask = lastUserText(entry.input) || "(no user text found)";
   const reply = entry.outputText || (entry.status === "streaming" || entry.status === "pending" ? "…" : "(no text reply)");
   let html =
-    `<div class="bubble user"><div class="who">you typed</div><pre>${esc(ask)}</pre></div>` +
-    `<div class="bubble assistant"><div class="who">codex replied</div><pre>${esc(reply)}</pre></div>`;
+    `<div class="bubble user"><div class="who">you typed ${copyBtn("ask")}</div><pre>${esc(ask)}</pre></div>` +
+    `<div class="bubble assistant"><div class="who">codex replied ${copyBtn("reply")}</div><pre>${esc(reply)}</pre></div>`;
 
   html += `<ul class="reqlist"><li class="reqlist-title">intercepted requests</li>`;
   for (const c of captures) {
@@ -343,7 +384,7 @@ function renderSent(entry) {
     `<details class="card hot" data-key="instructions" ${openAttr("instructions", true)}>
       <summary><span class="kicker">Instructions</span>
         <span class="meta">${fmt.format(instr.length)} chars · ~${fmt.format(Math.round(instr.length / 4))} tokens</span>
-        <span class="never">never shown to you</span></summary>
+        <span class="never">never shown to you</span>${copyBtn("instructions")}</summary>
       <div class="body"><pre>${esc(instr) || "(none)"}</pre></div>
     </details>`
   );
@@ -356,6 +397,7 @@ function renderSent(entry) {
       return `<details class="tool" data-key="tool:${i}" ${openAttr("tool:" + i, false)}>
         <summary><span class="tname">${esc(toolName(t))}</span>
           ${cap ? `<span class="cap">${esc(cap)}</span>` : ""}
+          ${copyBtn("tool:" + i)}
           ${desc ? `<span class="tdesc">${esc(desc.slice(0, 160))}</span>` : ""}</summary>
         <pre>${esc(JSON.stringify(t, null, 2))}</pre>
       </details>`;
@@ -365,7 +407,7 @@ function renderSent(entry) {
     `<details class="card hot" data-key="tools" ${openAttr("tools", true)}>
       <summary><span class="kicker">Tools it can fire</span>
         <span class="meta">${tools.length} tool${tools.length === 1 ? "" : "s"}</span>
-        <span class="never">silent machine access</span></summary>
+        <span class="never">silent machine access</span>${copyBtn("tools")}</summary>
       <div class="body">${toolCards || "<pre>(none)</pre>"}</div>
     </details>`
   );
@@ -375,7 +417,7 @@ function renderSent(entry) {
   parts.push(
     `<details class="card" data-key="input" ${openAttr("input", false)}>
       <summary><span class="kicker">Full input</span>
-        <span class="meta">${inputCount} item${inputCount === 1 ? "" : "s"} · everything resent each turn</span></summary>
+        <span class="meta">${inputCount} item${inputCount === 1 ? "" : "s"} · everything resent each turn</span>${copyBtn("input")}</summary>
       <div class="body"><pre>${esc(JSON.stringify(input, null, 2)) || "(none)"}</pre></div>
     </details>`
   );
@@ -386,7 +428,7 @@ function renderSent(entry) {
   parts.push(
     `<details class="card" data-key="params" ${openAttr("params", false)}>
       <summary><span class="kicker">Model &amp; parameters</span>
-        <span class="meta">${esc(entry.model || "?")}</span></summary>
+        <span class="meta">${esc(entry.model || "?")}</span>${copyBtn("params")}</summary>
       <div class="body"><table class="kv">${rows || "<tr><td>(none)</td><td></td></tr>"}</table></div>
     </details>`
   );
