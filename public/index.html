@@ -354,10 +354,13 @@ function payloadSegs(entries, totalIn) {
   };
 }
 
-function renderBarLegend(segs, isNew) {
+// widthPct scales the whole bar against the session's biggest request, so
+// switching between requests shows their absolute sizes, not just their
+// internal proportions (a 60k request must dwarf a 16k one).
+function renderBarLegend(segs, isNew, widthPct = 100) {
   const segSum = segs.reduce((a, s) => a + s.tok, 0) || 1;
   $("ratio").innerHTML = segs
-    .map((s) => `<div class="seg ${s.cls}" style="width:${(s.tok / segSum) * 100}%" title="${s.label}: ~${fmt.format(s.tok)} tokens"></div>`)
+    .map((s) => `<div class="seg ${s.cls}" style="width:${(s.tok / segSum) * widthPct}%" title="${s.label}: ~${fmt.format(s.tok)} tokens"></div>`)
     .join("");
   $("legend").innerHTML = segs
     .map((s) => `<span class="${s.item}"><span class="chip ${s.cls}"></span>${s.label} <b>~${fmt.format(s.tok)}</b> tok</span>`)
@@ -381,11 +384,13 @@ function setStatus(text) {
 
 function renderExhibit(entry, captures, isNew) {
   $("exhibit").hidden = false;
-  $("exhibit-title").textContent = "Exhibit A — payload of this request, to scale";
+  $("exhibit-title").textContent = "Exhibit A — payload of this request, to scale (bar length vs the session's biggest request)";
   const usage = entry.usage;
+  const inOf = (c) => (c.usage ? c.usage.input_tokens : estTokens(c));
   const totalIn = Math.max(1, usage ? usage.input_tokens : estTokens(entry));
+  const maxIn = Math.max(totalIn, ...captures.map(inOf));
   const { you, segs } = payloadSegs([entry], totalIn);
-  renderBarLegend(segs, isNew);
+  renderBarLegend(segs, isNew, (100 * totalIn) / maxIn);
 
   const est = usage ? "" : "≈";
   const cost = money(entry.cost);
