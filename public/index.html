@@ -238,6 +238,8 @@ function estTokens(entry) {
   return Math.round((entry.requestBytes || 0) / 4);
 }
 
+let lastSig = null;
+
 function render(captures) {
   const newest = captures[0];
   if (!newest) return;
@@ -248,6 +250,16 @@ function render(captures) {
   if (selectedId === null || isNew) selectedId = null; // keep following newest
 
   const shown = selectedId === null ? newest : entry;
+
+  // Re-rendering replaces the DOM, which would close open accordions and
+  // reset scroll positions — so skip it entirely unless the data changed.
+  const sig = JSON.stringify([
+    shown.id, shown.status, shown.outputText, shown.usage,
+    captures.map((c) => c.id + c.status).join(","),
+  ]);
+  if (sig === lastSig) return;
+  lastSig = sig;
+
   renderExhibit(shown, captures, isNew);
   renderSaw(shown, captures);
   renderSent(shown);
@@ -312,12 +324,23 @@ function renderSaw(entry, captures) {
   );
 }
 
+let lastSentId = null;
+
 function renderSent(entry) {
+  // Keep the user's open/closed choices across re-renders of the same
+  // request; fall back to defaults when switching to a different one.
+  const sameEntry = lastSentId === entry.id;
+  lastSentId = entry.id;
+  const openKeys = sameEntry
+    ? new Set([...document.querySelectorAll("#sent details[open]")].map((d) => d.dataset.key))
+    : null;
+  const openAttr = (key, def) => ((openKeys ? openKeys.has(key) : def) ? "open" : "");
+
   const parts = [];
 
   const instr = entry.instructions || "";
   parts.push(
-    `<details class="card hot" open>
+    `<details class="card hot" data-key="instructions" ${openAttr("instructions", true)}>
       <summary><span class="kicker">Instructions</span>
         <span class="meta">${fmt.format(instr.length)} chars · ~${fmt.format(Math.round(instr.length / 4))} tokens</span>
         <span class="never">never shown to you</span></summary>
@@ -327,10 +350,10 @@ function renderSent(entry) {
 
   const tools = Array.isArray(entry.tools) ? entry.tools : [];
   const toolCards = tools
-    .map((t) => {
+    .map((t, i) => {
       const cap = capability(t);
       const desc = t.description || t.function?.description || "";
-      return `<details class="tool">
+      return `<details class="tool" data-key="tool:${i}" ${openAttr("tool:" + i, false)}>
         <summary><span class="tname">${esc(toolName(t))}</span>
           ${cap ? `<span class="cap">${esc(cap)}</span>` : ""}
           ${desc ? `<span class="tdesc">${esc(desc.slice(0, 160))}</span>` : ""}</summary>
@@ -339,7 +362,7 @@ function renderSent(entry) {
     })
     .join("");
   parts.push(
-    `<details class="card hot" open>
+    `<details class="card hot" data-key="tools" ${openAttr("tools", true)}>
       <summary><span class="kicker">Tools it can fire</span>
         <span class="meta">${tools.length} tool${tools.length === 1 ? "" : "s"}</span>
         <span class="never">silent machine access</span></summary>
@@ -350,7 +373,7 @@ function renderSent(entry) {
   const input = entry.input;
   const inputCount = Array.isArray(input) ? input.length : input ? 1 : 0;
   parts.push(
-    `<details class="card">
+    `<details class="card" data-key="input" ${openAttr("input", false)}>
       <summary><span class="kicker">Full input</span>
         <span class="meta">${inputCount} item${inputCount === 1 ? "" : "s"} · everything resent each turn</span></summary>
       <div class="body"><pre>${esc(JSON.stringify(input, null, 2)) || "(none)"}</pre></div>
@@ -361,7 +384,7 @@ function renderSent(entry) {
     .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(JSON.stringify(v))}</td></tr>`)
     .join("");
   parts.push(
-    `<details class="card">
+    `<details class="card" data-key="params" ${openAttr("params", false)}>
       <summary><span class="kicker">Model &amp; parameters</span>
         <span class="meta">${esc(entry.model || "?")}</span></summary>
       <div class="body"><table class="kv">${rows || "<tr><td>(none)</td><td></td></tr>"}</table></div>
