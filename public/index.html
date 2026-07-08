@@ -60,10 +60,14 @@
   .legend .you-item b { color: var(--paper); }
   .legend .instr-item b { color: var(--hazard); }
   .legend .tools-item b { color: var(--danger); }
-  .ratio-caption { display: flex; justify-content: space-between; gap: 1rem; margin-top: 0.45rem; flex-wrap: wrap; }
-  .ratio-caption .you-cap { font-size: 0.8rem; color: var(--paper); }
-  .ratio-caption .sent-cap { font-size: 0.95rem; font-weight: 700; color: var(--hazard); text-align: right; }
-  .money { font-weight: 800; }
+  .stats { display: flex; gap: 1.2rem 2.6rem; flex-wrap: wrap; align-items: flex-end; margin: 0.9rem 0 0.7rem; }
+  .stat .lbl { font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-dim); margin-bottom: 0.2rem; }
+  .stat .val { font-size: 1.45rem; font-weight: 800; line-height: 1.1; }
+  .stat .val .unit { font-size: 0.75rem; font-weight: 400; color: var(--paper-dim); }
+  .stat .sub { font-size: 0.68rem; color: var(--paper-dim); margin-top: 0.15rem; }
+  .stat.you .val { color: var(--paper); }
+  .stat.sent .val, .stat.cost .val { color: var(--hazard); }
+  .stat.reply .val { color: var(--ok); }
 
   /* ---------- layout ---------- */
   main { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; min-height: calc(100vh - 140px); }
@@ -168,12 +172,9 @@
       <span>Exhibit A — payload of the latest request, to scale</span>
       <span id="session-total"></span>
     </div>
+    <div class="stats" id="stats"></div>
     <div class="ratio" id="ratio" role="img" aria-label="Breakdown of the tokens sent: what you typed versus hidden instructions, tool schemas, and resent conversation"></div>
     <div class="legend" id="legend"></div>
-    <div class="ratio-caption">
-      <span class="you-cap" id="cap-you"></span>
-      <span class="sent-cap" id="cap-sent"></span>
-    </div>
   </div>
 </header>
 
@@ -337,15 +338,18 @@ function renderExhibit(entry, captures, isNew) {
     .map((s) => `<span class="${s.item}"><span class="chip ${s.cls}"></span>${s.label} <b>~${fmt.format(s.tok)}</b> tok</span>`)
     .join("");
 
-  $("cap-you").textContent = `you typed ~${fmt.format(youTok)} of ${fmt.format(totalIn)} tokens (${(100 * youTok / totalIn).toFixed(1)}%) — the rest is the tool talking`;
   const est = usage ? "" : "≈";
   const cost = money(entry.cost);
   const cached = usage?.input_tokens_details?.cached_tokens || 0;
-  $("cap-sent").innerHTML =
-    `sent in your name: ${est}${fmt.format(totalIn)} tokens` +
-    (cached ? ` (${fmt.format(cached)} cached)` : "") +
-    (usage ? ` · reply: ${fmt.format(usage.output_tokens)} tokens` : "") +
-    (cost ? ` <span class="money">· ${cost}</span>` : "");
+  const pctOfPayload = (100 * youTok) / totalIn;
+  const pctText = pctOfPayload < 0.1 ? "under 0.1%" : pctOfPayload.toFixed(1) + "%";
+  const stat = (cls, lbl, val, sub) =>
+    `<div class="stat ${cls}"><div class="lbl">${lbl}</div><div class="val">${val}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+  $("stats").innerHTML =
+    stat("you", "you typed", `~${fmt.format(youTok)}<span class="unit"> tok</span>`, `${pctText} of the payload`) +
+    stat("sent", "sent in your name", `${est}${fmt.format(totalIn)}<span class="unit"> tok</span>`, cached ? `${fmt.format(cached)} cached at reduced price` : "") +
+    stat("reply", "reply", usage ? `${fmt.format(usage.output_tokens)}<span class="unit"> tok</span>` : "…", "") +
+    stat("cost", "this request cost", cost || "…", "");
 
   const sessionCost = captures.reduce((s, c) => s + (c.cost || 0), 0);
   const sessionIn = captures.reduce((s, c) => s + (c.usage?.input_tokens || 0), 0);
