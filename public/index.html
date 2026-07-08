@@ -66,6 +66,18 @@
   .legend .you-item b { color: var(--paper); }
   .legend .instr-item b { color: var(--hazard); }
   .legend .tools-item b { color: var(--danger); }
+  .timeline { display: flex; height: 0.85rem; border: 1px solid var(--line); background: var(--panel); margin-top: 0.7rem; }
+  .timeline .t { min-width: 3px; border-right: 1px solid var(--ink); cursor: pointer; }
+  .timeline .t.past { background: var(--paper-dim); }
+  .timeline .t.cur { background: var(--hazard); }
+  .timeline .t.future { background: var(--panel-2); }
+  .timeline .t:hover { outline: 1px solid var(--paper); }
+  .timeline-cap {
+    display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    margin-top: 0.35rem; font-size: 0.72rem; color: var(--paper-dim);
+  }
+  .timeline-cap b { color: var(--paper); }
+
   .stats { display: flex; gap: 1.2rem 2.6rem; flex-wrap: wrap; align-items: flex-end; margin: 0.9rem 0 0.7rem; }
   .stat .lbl { font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-dim); margin-bottom: 0.2rem; }
   .stat .val { font-size: 1.45rem; font-weight: 800; line-height: 1.1; }
@@ -183,6 +195,10 @@
     <div class="stats" id="stats"></div>
     <div class="ratio" id="ratio" role="img" aria-label="Breakdown of the tokens sent: what you typed versus hidden instructions, tool schemas, and resent conversation"></div>
     <div class="legend" id="legend"></div>
+    <div id="timeline-wrap" hidden>
+      <div class="timeline" id="timeline" role="img" aria-label="Session timeline: one block per request, sized by its input tokens"></div>
+      <div class="timeline-cap"><span>session timeline — click a block to jump</span><span id="timeline-cum"></span></div>
+    </div>
   </div>
 </header>
 
@@ -383,6 +399,37 @@ function renderBarLegend(segs, isNew, widthPct = 100, unusedTok = null) {
   }
 }
 
+// Slim running-total strip: one block per request (width = its input tokens),
+// filled up to the shown request so the cumulative spend has a shape.
+function renderTimeline(entry, captures) {
+  $("timeline-wrap").hidden = false;
+  const inOf = (c) => (c.usage ? c.usage.input_tokens : estTokens(c));
+  const ordered = [...captures].sort((a, b) => a.id - b.id);
+  const sessionIn = ordered.reduce((s, c) => s + inOf(c), 0) || 1;
+  let cumIn = 0;
+  let cumCost = 0;
+  $("timeline").innerHTML = ordered
+    .map((c) => {
+      const state = c.id < entry.id ? "past" : c.id === entry.id ? "cur" : "future";
+      if (c.id <= entry.id) {
+        cumIn += inOf(c);
+        cumCost += c.cost || 0;
+      }
+      return `<div class="t ${state}" data-id="${c.id}" style="width:${(100 * inOf(c)) / sessionIn}%" title="#${c.id}: ~${fmt.format(inOf(c))} tok in"></div>`;
+    })
+    .join("");
+  $("timeline-cum").innerHTML =
+    `up to here (#${entry.id}): <b>${fmt.format(cumIn)}</b> tok in · <b>${money(cumCost) || "$0.00"}</b>` +
+    ` — whole session: ${fmt.format(sessionIn)} tok`;
+}
+
+document.addEventListener("click", (e) => {
+  const block = e.target.closest(".timeline .t");
+  if (!block) return;
+  selectedId = Number(block.dataset.id);
+  poll();
+});
+
 function pctOfPayloadText(you, totalIn) {
   const pct = (100 * you) / totalIn;
   return pct < 0.1 ? "under 0.1%" : pct.toFixed(1) + "%";
@@ -401,6 +448,7 @@ function renderExhibit(entry, captures, isNew) {
     `Exhibit A — this request vs the model's context window (~${Math.round(ctx / 1000)}k usable input)`;
   const { you, segs } = payloadSegs([entry], totalIn);
   renderBarLegend(segs, isNew, Math.min(100, (100 * totalIn) / ctx), Math.max(0, ctx - totalIn));
+  renderTimeline(entry, captures);
 
   const est = usage ? "" : "≈";
   const cost = money(entry.cost);
@@ -444,6 +492,7 @@ function renderSessionExhibit(captures, isNew) {
   const est = captures.every((c) => c.usage) ? "" : "≈";
   const { you, segs } = payloadSegs(captures, totalIn);
   renderBarLegend(segs, isNew);
+  $("timeline-wrap").hidden = true;
 
   const thinkTok = captures.reduce((s, c) => s + (c.usage?.output_tokens_details?.reasoning_tokens || 0), 0);
   $("stats").innerHTML =
