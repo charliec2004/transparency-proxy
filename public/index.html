@@ -621,15 +621,19 @@ function renderSaw(entry, captures) {
   for (const t of [...turns].reverse()) {
     const a = t.anchor;
     const label = lastUserText(a.input).slice(0, 42) || "(non-text input)";
+    // Clicking the turn itself lands on the loop's final request — the
+    // finished state with the answer and the turn's full weight.
+    const last = t.members.length ? t.members[t.members.length - 1] : a;
     const extra = t.members.length
       ? ` <span class="round">+${t.members.length} agent-loop req${t.members.length === 1 ? "" : "s"}</span>`
       : "";
-    html += `<li><button data-id="${a.id}" aria-current="${isCur(a)}">#${a.id} · ${esc(label)}${extra}</button>`;
+    html += `<li><button data-id="${last.id}" aria-current="${isCur(a)}">#${a.id} · ${esc(label)}${extra}</button>`;
     if (t.members.length) {
       html += `<ul class="loopreqs">`;
-      for (const m of t.members) {
-        html += `<li><button data-id="${m.id}" aria-current="${isCur(m)}">└ #${m.id}${roundTag(toolRound(m.input))}</button></li>`;
-      }
+      t.members.forEach((m, i) => {
+        const letter = String.fromCharCode(97 + (i % 26));
+        html += `<li><button data-id="${m.id}" aria-current="${isCur(m)}">└ ${a.id}${letter}${roundTag(toolRound(m.input))}</button></li>`;
+      });
       html += `</ul>`;
     }
     html += `</li>`;
