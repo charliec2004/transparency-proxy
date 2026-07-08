@@ -329,6 +329,12 @@ function render(captures) {
 
 const estTokStr = (s) => Math.round((s || "").length / 4);
 
+// Usable INPUT tokens (context window minus reserved output). Verified for
+// gpt-5.3-codex on 2026-07-07: 400k window = 272k input + 128k output.
+// The gpt-5.x family shares this split; adjust here if you demo another model.
+const CONTEXT_INPUT = { "gpt-5.3-codex": 272000 };
+const contextInputFor = (model) => CONTEXT_INPUT[model] || 272000;
+
 const statHtml = (cls, lbl, val, sub) =>
   `<div class="stat ${cls}"><div class="lbl">${lbl}</div><div class="val">${val}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
 
@@ -354,17 +360,21 @@ function payloadSegs(entries, totalIn) {
   };
 }
 
-// widthPct scales the whole bar against the session's biggest request, so
-// switching between requests shows their absolute sizes, not just their
-// internal proportions (a 60k request must dwarf a 16k one).
-function renderBarLegend(segs, isNew, widthPct = 100) {
+// widthPct scales the filled part of the bar; the dark remainder of the track
+// is unused context window (labeled in the legend via `unusedTok`), so bars
+// grow as the agent fills the model's memory — a 60k request dwarfs a 16k one.
+function renderBarLegend(segs, isNew, widthPct = 100, unusedTok = null) {
   const segSum = segs.reduce((a, s) => a + s.tok, 0) || 1;
   $("ratio").innerHTML = segs
     .map((s) => `<div class="seg ${s.cls}" style="width:${(s.tok / segSum) * widthPct}%" title="${s.label}: ~${fmt.format(s.tok)} tokens"></div>`)
     .join("");
-  $("legend").innerHTML = segs
-    .map((s) => `<span class="${s.item}"><span class="chip ${s.cls}"></span>${s.label} <b>~${fmt.format(s.tok)}</b> tok</span>`)
-    .join("");
+  $("legend").innerHTML =
+    segs
+      .map((s) => `<span class="${s.item}"><span class="chip ${s.cls}"></span>${s.label} <b>~${fmt.format(s.tok)}</b> tok</span>`)
+      .join("") +
+    (unusedTok !== null
+      ? `<span><span class="chip"></span>unused context window ~${fmt.format(unusedTok)} tok</span>`
+      : "");
   if (isNew) {
     const bar = document.querySelector(".ratio");
     bar.classList.remove("flash");
@@ -384,13 +394,13 @@ function setStatus(text) {
 
 function renderExhibit(entry, captures, isNew) {
   $("exhibit").hidden = false;
-  $("exhibit-title").textContent = "Exhibit A — payload of this request, to scale (bar length vs the session's biggest request)";
   const usage = entry.usage;
-  const inOf = (c) => (c.usage ? c.usage.input_tokens : estTokens(c));
   const totalIn = Math.max(1, usage ? usage.input_tokens : estTokens(entry));
-  const maxIn = Math.max(totalIn, ...captures.map(inOf));
+  const ctx = contextInputFor(entry.model);
+  $("exhibit-title").textContent =
+    `Exhibit A — this request vs the model's context window (~${Math.round(ctx / 1000)}k usable input)`;
   const { you, segs } = payloadSegs([entry], totalIn);
-  renderBarLegend(segs, isNew, (100 * totalIn) / maxIn);
+  renderBarLegend(segs, isNew, Math.min(100, (100 * totalIn) / ctx), Math.max(0, ctx - totalIn));
 
   const est = usage ? "" : "≈";
   const cost = money(entry.cost);
