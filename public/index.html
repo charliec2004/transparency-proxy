@@ -117,6 +117,7 @@
   }
   .reqlist button:hover, .reqlist button:focus-visible { color: var(--paper); background: var(--panel); outline: 1px solid var(--line); }
   .reqlist button[aria-current="true"] { color: var(--hazard); }
+  .round { color: var(--ok); font-size: 0.9em; }
 
   /* ---------- the hidden payload ---------- */
   /* Flat sections, not nested boxes: each card is a top rule + content; the
@@ -258,6 +259,24 @@ function lastUserText(input) {
   }
   return "";
 }
+
+// How many tool results follow the last user message. 0 = a request you
+// actually triggered by typing; N>0 = the Nth round of the agent loop,
+// where Codex is feeding tool output back to the model on its own.
+function toolRound(input) {
+  if (!Array.isArray(input)) return 0;
+  let lastUser = -1;
+  input.forEach((it, i) => {
+    if (it.role === "user") lastUser = i;
+  });
+  let n = 0;
+  for (let i = lastUser + 1; i < input.length; i++) {
+    if (input[i].type === "function_call_output" || input[i].type === "custom_tool_call_output") n++;
+  }
+  return n;
+}
+
+const roundTag = (r) => (r > 0 ? ` <span class="round">⟳ tool round ${r}</span>` : "");
 
 // Tools whose names suggest machine access get called out.
 function capability(tool) {
@@ -475,9 +494,11 @@ function renderExhibit(entry, captures, isNew) {
     ? `session: ${fmt.format(sessionIn)} tokens in · ${money(sessionCost) || "$0.00"}`
     : "";
 
+  const round = toolRound(entry.input);
   setStatus(
     `request #${entry.id} · ${esc(entry.model || "?")} · ` +
-    `${esc(entry.status)}${entry.durationMs ? " · " + (entry.durationMs / 1000).toFixed(1) + "s" : ""}`
+    `${esc(entry.status)}${entry.durationMs ? " · " + (entry.durationMs / 1000).toFixed(1) + "s" : ""}` +
+    (round ? ` · sent by the agent loop, not you (tool round ${round})` : "")
   );
 }
 
@@ -524,7 +545,7 @@ function renderSessionSent(captures) {
   const rows = [...captures]
     .reverse()
     .map((c) => {
-      const ask = esc(lastUserText(c.input).slice(0, 48)) || "(non-text input)";
+      const ask = (esc(lastUserText(c.input).slice(0, 48)) || "(non-text input)") + roundTag(toolRound(c.input));
       return (
         `<tr><td>#${c.id}</td><td>${new Date(c.time).toLocaleTimeString()}</td><td>${ask}</td>` +
         `<td>${c.usage ? fmt.format(c.usage.input_tokens) : "≈" + fmt.format(estTokens(c))}</td>` +
@@ -581,7 +602,7 @@ function renderSaw(entry, captures) {
   for (const c of captures) {
     const current = typeof selectedId === "number" && c.id === selectedId;
     const label = lastUserText(c.input).slice(0, 42) || "(non-text input)";
-    html += `<li><button data-id="${c.id}" aria-current="${current}">#${c.id} · ${esc(label)}</button></li>`;
+    html += `<li><button data-id="${c.id}" aria-current="${current}">#${c.id} · ${esc(label)}${roundTag(toolRound(c.input))}</button></li>`;
   }
   html += `</ul>`;
 
