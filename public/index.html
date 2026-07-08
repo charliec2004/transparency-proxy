@@ -91,7 +91,7 @@
   .bubble .who { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-dim); margin-bottom: 0.25rem; }
   .bubble pre {
     white-space: pre-wrap; word-break: break-word; font: inherit;
-    background: var(--panel); border: 1px solid var(--line); padding: 0.6rem 0.75rem;
+    background: var(--panel); border: none; padding: 0.6rem 0.75rem;
     max-height: 16rem; overflow: auto;
   }
   .bubble.user pre { border-left: 3px solid var(--paper); }
@@ -107,9 +107,11 @@
   .reqlist button[aria-current="true"] { color: var(--hazard); }
 
   /* ---------- the hidden payload ---------- */
-  .card { border: 1px solid var(--line); background: var(--panel); margin-bottom: 1rem; }
+  /* Flat sections, not nested boxes: each card is a top rule + content; the
+     only filled surface inside is the pre/panel itself. */
+  .card { border-top: 2px solid var(--line); margin-bottom: 1.6rem; }
   .card > summary {
-    list-style: none; cursor: pointer; padding: 0.65rem 0.9rem;
+    list-style: none; cursor: pointer; padding: 0.6rem 0 0.5rem;
     display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap;
   }
   .card > summary::-webkit-details-marker { display: none; }
@@ -119,17 +121,17 @@
   .card .kicker { font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; }
   .card .meta { font-size: 0.72rem; color: var(--paper-dim); }
   .card .never { font-size: 0.72rem; color: var(--hazard); letter-spacing: 0.08em; text-transform: uppercase; }
-  .card .body { padding: 0 0.9rem 0.9rem; }
+  .card .body { padding: 0 0 0.4rem; }
   .card pre {
     white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 0.82rem;
-    background: var(--ink); border: 1px solid var(--line); padding: 0.7rem 0.8rem;
+    background: var(--panel); border: none; padding: 0.7rem 0.8rem;
     max-height: 24rem; overflow: auto;
   }
-  .card.hot { border-color: var(--hazard); }
+  .card.hot { border-top-color: var(--hazard); }
   .card.hot .kicker { color: var(--hazard); }
 
-  .tool { border: 1px solid var(--line); background: var(--panel-2); margin: 0 0 0.6rem; }
-  .tool summary { list-style: none; cursor: pointer; padding: 0.5rem 0.7rem; display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+  .tool { border-left: 3px solid var(--line); margin: 0 0 0.9rem; }
+  .tool summary { list-style: none; cursor: pointer; padding: 0.35rem 0.7rem; display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
   .tool summary::-webkit-details-marker { display: none; }
   .tool summary:focus-visible { outline: 2px solid var(--hazard); outline-offset: -2px; }
   .tool .tname { font-weight: 700; }
@@ -138,7 +140,7 @@
     color: var(--ink); background: var(--danger); padding: 0.1rem 0.4rem;
   }
   .tool .tdesc { font-size: 0.74rem; color: var(--paper-dim); width: 100%; }
-  .tool pre { margin: 0 0.7rem 0.7rem; }
+  .tool pre { margin: 0.2rem 0.7rem 0.6rem; }
 
   .kv { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
   .kv td { border-top: 1px solid var(--line); padding: 0.4rem 0.6rem; vertical-align: top; }
@@ -175,7 +177,7 @@
   </div>
   <div class="exhibit" id="exhibit" hidden>
     <div class="exhibit-label">
-      <span>Exhibit A — payload of the latest request, to scale</span>
+      <span id="exhibit-title">Exhibit A — payload of the latest request, to scale</span>
       <span id="session-total"></span>
     </div>
     <div class="stats" id="stats"></div>
@@ -295,67 +297,104 @@ function render(captures) {
   const newest = captures[0];
   if (!newest) return;
 
-  const entry = captures.find((c) => c.id === selectedId) || newest;
   const isNew = newest.id !== lastNewestId;
   lastNewestId = newest.id;
-  if (selectedId === null || isNew) selectedId = null; // keep following newest
 
-  const shown = selectedId === null ? newest : entry;
+  // selectedId: null = follow latest, "session" = whole-session view,
+  // a number = pinned to that request (stays pinned when new traffic lands).
+  const sessionMode = selectedId === "session";
+  const pinned = typeof selectedId === "number" ? captures.find((c) => c.id === selectedId) : null;
+  const shown = pinned || newest;
   currentShown = shown; // copy buttons read from here
 
   // Re-rendering replaces the DOM, which would close open accordions and
   // reset scroll positions — so skip it entirely unless the data changed.
   const sig = JSON.stringify([
-    shown.id, shown.status, shown.outputText, shown.usage,
-    captures.map((c) => c.id + c.status).join(","),
+    selectedId, shown.id, shown.status, shown.outputText, shown.usage,
+    captures.map((c) => c.id + c.status + (c.cost || 0)).join(","),
   ]);
   if (sig === lastSig) return;
   lastSig = sig;
 
-  renderExhibit(shown, captures, isNew);
-  renderSaw(shown, captures);
-  renderSent(shown);
+  if (sessionMode) {
+    renderSessionExhibit(captures, isNew);
+    renderSaw(null, captures);
+    renderSessionSent(captures);
+  } else {
+    renderExhibit(shown, captures, isNew);
+    renderSaw(shown, captures);
+    renderSent(shown);
+  }
 }
 
-function renderExhibit(entry, captures, isNew) {
-  $("exhibit").hidden = false;
-  const usage = entry.usage;
-  const totalIn = Math.max(1, usage ? usage.input_tokens : estTokens(entry));
-  const estTok = (s) => Math.round((s || "").length / 4);
+const estTokStr = (s) => Math.round((s || "").length / 4);
 
-  // Estimated split of the request. Sizes come from chars/4 per section, then
-  // everything is scaled so the segments sum to the API-reported total.
-  const youTok = Math.max(1, estTok(lastUserText(entry.input)));
-  const instrTok = estTok(entry.instructions);
-  const toolsTok = entry.tools ? estTok(JSON.stringify(entry.tools)) : 0;
-  const histTok = Math.max(0, totalIn - youTok - instrTok - toolsTok);
-  const segs = [
-    { cls: "seg-you", item: "you-item", label: "what you typed", tok: youTok },
-    { cls: "seg-instr", item: "instr-item", label: "hidden instructions", tok: instrTok },
-    { cls: "seg-tools", item: "tools-item", label: "tool schemas", tok: toolsTok },
-    { cls: "seg-hist", item: "hist-item", label: "resent conversation + tool results", tok: histTok },
-  ].filter((s) => s.tok > 0);
-  const segSum = segs.reduce((a, s) => a + s.tok, 0);
+const statHtml = (cls, lbl, val, sub) =>
+  `<div class="stat ${cls}"><div class="lbl">${lbl}</div><div class="val">${val}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
 
+// The four payload categories, estimated at chars/4 per section and scaled
+// against the API-reported total. `entries` is one capture (request view)
+// or all of them (session view).
+function payloadSegs(entries, totalIn) {
+  let you = 0, instr = 0, tools = 0;
+  for (const c of entries) {
+    you += Math.max(1, estTokStr(lastUserText(c.input)));
+    instr += estTokStr(c.instructions);
+    tools += c.tools ? estTokStr(JSON.stringify(c.tools)) : 0;
+  }
+  const hist = Math.max(0, totalIn - you - instr - tools);
+  return {
+    you,
+    segs: [
+      { cls: "seg-you", item: "you-item", label: "what you typed", tok: you },
+      { cls: "seg-instr", item: "instr-item", label: "hidden instructions", tok: instr },
+      { cls: "seg-tools", item: "tools-item", label: "tool schemas", tok: tools },
+      { cls: "seg-hist", item: "hist-item", label: "resent conversation + tool results", tok: hist },
+    ].filter((s) => s.tok > 0),
+  };
+}
+
+function renderBarLegend(segs, isNew) {
+  const segSum = segs.reduce((a, s) => a + s.tok, 0) || 1;
   $("ratio").innerHTML = segs
     .map((s) => `<div class="seg ${s.cls}" style="width:${(s.tok / segSum) * 100}%" title="${s.label}: ~${fmt.format(s.tok)} tokens"></div>`)
     .join("");
   $("legend").innerHTML = segs
     .map((s) => `<span class="${s.item}"><span class="chip ${s.cls}"></span>${s.label} <b>~${fmt.format(s.tok)}</b> tok</span>`)
     .join("");
+  if (isNew) {
+    const bar = document.querySelector(".ratio");
+    bar.classList.remove("flash");
+    void bar.offsetWidth;
+    bar.classList.add("flash");
+  }
+}
+
+function pctOfPayloadText(you, totalIn) {
+  const pct = (100 * you) / totalIn;
+  return pct < 0.1 ? "under 0.1%" : pct.toFixed(1) + "%";
+}
+
+function setStatus(text) {
+  $("status").innerHTML = `<span class="dot">●</span> ${text}`;
+}
+
+function renderExhibit(entry, captures, isNew) {
+  $("exhibit").hidden = false;
+  $("exhibit-title").textContent = "Exhibit A — payload of this request, to scale";
+  const usage = entry.usage;
+  const totalIn = Math.max(1, usage ? usage.input_tokens : estTokens(entry));
+  const { you, segs } = payloadSegs([entry], totalIn);
+  renderBarLegend(segs, isNew);
 
   const est = usage ? "" : "≈";
   const cost = money(entry.cost);
   const cached = usage?.input_tokens_details?.cached_tokens || 0;
-  const pctOfPayload = (100 * youTok) / totalIn;
-  const pctText = pctOfPayload < 0.1 ? "under 0.1%" : pctOfPayload.toFixed(1) + "%";
-  const stat = (cls, lbl, val, sub) =>
-    `<div class="stat ${cls}"><div class="lbl">${lbl}</div><div class="val">${val}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
   $("stats").innerHTML =
-    stat("you", "you typed", `~${fmt.format(youTok)}<span class="unit"> tok</span>`, `${pctText} of the payload`) +
-    stat("sent", "sent in your name", `${est}${fmt.format(totalIn)}<span class="unit"> tok</span>`, cached ? `${fmt.format(cached)} cached at reduced price` : "") +
-    stat("reply", "reply", usage ? `${fmt.format(usage.output_tokens)}<span class="unit"> tok</span>` : "…", "") +
-    stat("cost", "this request cost", cost || "…", "");
+    statHtml("you", "you typed", `~${fmt.format(you)}<span class="unit"> tok</span>`, `${pctOfPayloadText(you, totalIn)} of the payload`) +
+    statHtml("sent", "sent in your name", `${est}${fmt.format(totalIn)}<span class="unit"> tok</span>`, cached ? `${fmt.format(cached)} cached at reduced price` : "") +
+    statHtml("reply", "reply", usage ? `${fmt.format(usage.output_tokens)}<span class="unit"> tok</span>` : "…", "") +
+    statHtml("cost", "this request cost", cost || "…", "");
 
   const sessionCost = captures.reduce((s, c) => s + (c.cost || 0), 0);
   const sessionIn = captures.reduce((s, c) => s + (c.usage?.input_tokens || 0), 0);
@@ -363,30 +402,91 @@ function renderExhibit(entry, captures, isNew) {
     ? `session: ${fmt.format(sessionIn)} tokens in · ${money(sessionCost) || "$0.00"}`
     : "";
 
-  if (isNew) {
-    const bar = document.querySelector(".ratio");
-    bar.classList.remove("flash");
-    void bar.offsetWidth;
-    bar.classList.add("flash");
-  }
+  setStatus(
+    `request #${entry.id} · ${esc(entry.model || "?")} · ` +
+    `${esc(entry.status)}${entry.durationMs ? " · " + (entry.durationMs / 1000).toFixed(1) + "s" : ""}`
+  );
+}
 
-  const dot = document.querySelector("#status .dot");
-  dot.classList.remove("stale");
-  $("status").innerHTML =
-    `<span class="dot">●</span> request #${entry.id} · ${esc(entry.model || "?")} · ` +
-    `${esc(entry.status)}${entry.durationMs ? " · " + (entry.durationMs / 1000).toFixed(1) + "s" : ""}`;
+function renderSessionExhibit(captures, isNew) {
+  $("exhibit").hidden = false;
+  const n = captures.length;
+  $("exhibit-title").textContent = `Exhibit A — everything sent this session (${n} request${n === 1 ? "" : "s"}), to scale`;
+  const totalIn = Math.max(1, captures.reduce((s, c) => s + (c.usage ? c.usage.input_tokens : estTokens(c)), 0));
+  const outTok = captures.reduce((s, c) => s + (c.usage?.output_tokens || 0), 0);
+  const cached = captures.reduce((s, c) => s + (c.usage?.input_tokens_details?.cached_tokens || 0), 0);
+  const cost = captures.reduce((s, c) => s + (c.cost || 0), 0);
+  const est = captures.every((c) => c.usage) ? "" : "≈";
+  const { you, segs } = payloadSegs(captures, totalIn);
+  renderBarLegend(segs, isNew);
+
+  $("stats").innerHTML =
+    statHtml("you", "you typed", `~${fmt.format(you)}<span class="unit"> tok</span>`, `${pctOfPayloadText(you, totalIn)} of the payload`) +
+    statHtml("sent", "sent in your name", `${est}${fmt.format(totalIn)}<span class="unit"> tok</span>`, cached ? `${fmt.format(cached)} cached at reduced price` : "") +
+    statHtml("reply", "replies", `${fmt.format(outTok)}<span class="unit"> tok</span>`, "") +
+    statHtml("cost", "session cost", money(cost) || "…", "");
+
+  $("session-total").textContent = "";
+  setStatus(`whole session · ${n} request${n === 1 ? "" : "s"} · live`);
+}
+
+function renderSessionSent(captures) {
+  const newest = captures[0];
+  const rows = [...captures]
+    .reverse()
+    .map((c) => {
+      const ask = esc(lastUserText(c.input).slice(0, 48)) || "(non-text input)";
+      return (
+        `<tr><td>#${c.id}</td><td>${new Date(c.time).toLocaleTimeString()}</td><td>${ask}</td>` +
+        `<td>${c.usage ? fmt.format(c.usage.input_tokens) : "≈" + fmt.format(estTokens(c))}</td>` +
+        `<td>${c.usage ? fmt.format(c.usage.output_tokens) : "…"}</td>` +
+        `<td>${money(c.cost) || "…"}</td></tr>`
+      );
+    })
+    .join("");
+
+  const instrTok = estTokStr(newest.instructions);
+  const toolsTok = newest.tools ? estTokStr(JSON.stringify(newest.tools)) : 0;
+  const n = captures.length;
+
+  $("sent").innerHTML =
+    `<details class="card hot" open>
+      <summary><span class="kicker">Session ledger</span>
+        <span class="meta">${n} request${n === 1 ? "" : "s"} · oldest first</span></summary>
+      <div class="body"><table class="kv">
+        <tr><td>req</td><td>time</td><td>you asked</td><td>tok in</td><td>tok out</td><td>cost</td></tr>
+        ${rows}
+      </table></div>
+    </details>
+    <details class="card hot" open>
+      <summary><span class="kicker">Resent with every single request</span>
+        <span class="never">the overhead repeats</span></summary>
+      <div class="body"><table class="kv">
+        <tr><td>hidden instructions</td><td>~${fmt.format(instrTok)} tok × ${n} request${n === 1 ? "" : "s"} ≈ <b>${fmt.format(instrTok * n)} tokens</b></td></tr>
+        <tr><td>tool schemas</td><td>~${fmt.format(toolsTok)} tok × ${n} request${n === 1 ? "" : "s"} ≈ <b>${fmt.format(toolsTok * n)} tokens</b></td></tr>
+      </table></div>
+    </details>`;
 }
 
 function renderSaw(entry, captures) {
-  const ask = lastUserText(entry.input) || "(no user text found)";
-  const reply = entry.outputText || (entry.status === "streaming" || entry.status === "pending" ? "…" : "(no text reply)");
-  let html =
-    `<div class="bubble user"><div class="who">you typed ${copyBtn("ask")}</div><pre>${esc(ask)}</pre></div>` +
-    `<div class="bubble assistant"><div class="who">codex replied ${copyBtn("reply")}</div><pre>${esc(reply)}</pre></div>`;
+  let html;
+  if (entry) {
+    const ask = lastUserText(entry.input) || "(no user text found)";
+    const reply = entry.outputText || (entry.status === "streaming" || entry.status === "pending" ? "…" : "(no text reply)");
+    html =
+      `<div class="bubble user"><div class="who">you typed ${copyBtn("ask")}</div><pre>${esc(ask)}</pre></div>` +
+      `<div class="bubble assistant"><div class="who">codex replied ${copyBtn("reply")}</div><pre>${esc(reply)}</pre></div>`;
+  } else {
+    html = `<div class="bubble"><div class="who">whole session</div><pre>Everything intercepted so far, added up.
+Pick a request below to inspect just one.</pre></div>`;
+  }
 
-  html += `<ul class="reqlist"><li class="reqlist-title">intercepted requests</li>`;
+  html += `<ul class="reqlist"><li class="reqlist-title">views</li>`;
+  html += `<li><button data-id="session" aria-current="${selectedId === "session"}">▣ whole session</button></li>`;
+  html += `<li><button data-id="live" aria-current="${selectedId === null}">● follow latest</button></li>`;
+  html += `<li class="reqlist-title" style="margin-top:0.7rem">intercepted requests</li>`;
   for (const c of captures) {
-    const current = c.id === entry.id;
+    const current = typeof selectedId === "number" && c.id === selectedId;
     const label = lastUserText(c.input).slice(0, 42) || "(non-text input)";
     html += `<li><button data-id="${c.id}" aria-current="${current}">#${c.id} · ${esc(label)}</button></li>`;
   }
@@ -394,7 +494,8 @@ function renderSaw(entry, captures) {
   $("saw").innerHTML = html;
   $("saw").querySelectorAll("button[data-id]").forEach((b) =>
     b.addEventListener("click", () => {
-      selectedId = Number(b.dataset.id);
+      const v = b.dataset.id;
+      selectedId = v === "session" ? "session" : v === "live" ? null : Number(v);
       poll();
     })
   );
