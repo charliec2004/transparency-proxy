@@ -32,23 +32,26 @@ the browser; `/inspect` exposes decomposed request bodies, not auth headers.
 
 Add to `~/.codex/config.toml` (verified against the current Codex config
 reference, 2026-07-07 — `wire_api = "responses"` is now the only supported
-value; Codex appends `/responses` to `base_url`):
+value; Codex appends `/responses` to `base_url`). Defining it as a profile
+leaves normal Codex use untouched:
 
 ```toml
-model = "gpt-5.3-codex"                 # current Codex model; any model your key can call
-model_provider = "transparency"
-
 [model_providers.transparency]
 name = "Transparency Proxy"
 base_url = "http://localhost:8080/v1"
 env_key = "OPENAI_API_KEY"
 wire_api = "responses"
 requires_openai_auth = false            # Codex sends a Bearer token instead of forcing ChatGPT login
+
+[profiles.transparency]
+model = "gpt-5.3-codex"                 # current Codex model; any model your key can call
+model_provider = "transparency"
 ```
 
-Then launch `codex` in any directory (with `OPENAI_API_KEY` set in that shell
-— Codex requires the env var named by `env_key` to exist; the proxy replaces
-it with its own key upstream). Type something tiny. Watch the panel.
+Then launch `codex --profile transparency` in any directory (with
+`OPENAI_API_KEY` set in that shell — Codex requires the env var named by
+`env_key` to exist; the proxy replaces it with its own key upstream). Type
+something tiny. Watch the panel.
 
 Use the Codex **CLI** on stage; the desktop app reads the same config but its
 custom-provider support has rough edges.
