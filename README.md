@@ -24,20 +24,20 @@ Prereqs: Node 20+, Python 3, the Codex CLI, and an OpenAI API key.
 ```sh
 git clone https://github.com/charliec2004/transparency-proxy.git
 cd transparency-proxy
-npm install
+pnpm install
 python3 demo.py        # prompts for your key, starts everything, launches Codex
 ```
 
 `demo.py` needs the Codex config block below in `~/.codex/config.toml` once
-per machine. No key yet? Rehearse with fakes: `npm run smoke`, or `npm run mock`
-plus `UPSTREAM_URL=http://127.0.0.1:9090/v1/responses npm start` and
+per machine. No key yet? Rehearse with fakes: `pnpm run smoke`, or `pnpm run mock`
+plus `UPSTREAM_URL=http://127.0.0.1:9090/v1/responses pnpm start` and
 `node test/rehearsal.js "say hi"`.
 
 ## Run it
 
 ```sh
-npm install
-OPENAI_API_KEY=sk-...  npm start        # the real key lives ONLY here
+pnpm install
+OPENAI_API_KEY=sk-...  pnpm start        # the real key lives ONLY here
 open http://127.0.0.1:8080/             # the inspector
 ```
 
@@ -75,11 +75,11 @@ custom-provider support has rough edges.
 ## Test without an API key / without Codex
 
 ```sh
-npm run smoke     # mock upstream + proxy + curl round trips (stream & non-stream)
+pnpm run smoke     # mock upstream + proxy + curl round trips (stream & non-stream)
 ```
 
-Or by hand: `npm run mock` in one terminal, then
-`UPSTREAM_URL=http://127.0.0.1:9090/v1/responses npm start` in another, and
+Or by hand: `pnpm run mock` in one terminal, then
+`UPSTREAM_URL=http://127.0.0.1:9090/v1/responses pnpm start` in another, and
 curl a Responses body at `http://127.0.0.1:8080/v1/responses`.
 
 ## Demo script (< 2 min)
